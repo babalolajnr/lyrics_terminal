@@ -3,7 +3,7 @@ use std::time::Duration;
 use nom::{
     bytes::complete::{tag, take_until},
     character::complete::{digit1, multispace0, space0},
-    combinator::{eof, map_res},
+    combinator::{eof, map_res, opt},
     multi::many0,
     sequence::{delimited, pair, preceded, terminated},
     IResult,
@@ -19,7 +19,13 @@ fn parse_timestamp(input: &str) -> IResult<&str, Duration> {
     let (input, minutes) = map_res(digit1, |s: &str| s.parse::<u64>())(input)?;
     let (input, _) = tag(":")(input)?;
     let (input, seconds) = map_res(digit1, |s: &str| s.parse::<u64>())(input)?;
-    let timestamp = Duration::from_secs(minutes * 60 + seconds);
+    let (input, milliseconds) = opt(preceded(
+        tag("."),
+        map_res(digit1, |s: &str| s.parse::<u64>()),
+    ))(input)?;
+
+    let total_milliseconds = minutes * 60 * 1000 + seconds * 1000 + milliseconds.unwrap_or(0);
+    let timestamp = Duration::from_millis(total_milliseconds);
     Ok((input, timestamp))
 }
 
@@ -51,6 +57,10 @@ mod tests {
     #[test]
     fn test_parse_timestamp() {
         assert_eq!(parse_timestamp("01:23"), Ok(("", Duration::from_secs(83))));
+        assert_eq!(
+            parse_timestamp("01:23.456"),
+            Ok(("", Duration::from_millis(83456)))
+        );
     }
 
     #[test]
@@ -80,6 +90,25 @@ mod tests {
             },
             Lyric {
                 timestamp: Duration::from_secs(10),
+                text: "Second line".to_string(),
+            },
+        ];
+        assert_eq!(parse_lyrics(input), Ok(("", expected)));
+    }
+
+    #[test]
+    fn test_parse_lyrics_with_milliseconds() {
+        let input = "\
+            [00:05.500] First line
+            [00:10.250] Second line
+            ";
+        let expected = vec![
+            Lyric {
+                timestamp: Duration::from_millis(5500),
+                text: "First line".to_string(),
+            },
+            Lyric {
+                timestamp: Duration::from_millis(10250),
                 text: "Second line".to_string(),
             },
         ];
